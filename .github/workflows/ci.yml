@@ -2,14 +2,41 @@
 name: CI
 
 on:
-  - push
-  - pull_request
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - '**'
+  schedule:
+    - cron: '0 4 1 * *'
+  # Run workflow manually
+  workflow_dispatch:
 
 jobs:
-  rspec:
-    runs-on: ubuntu-20.04
+  rubocop:
+    runs-on: ubuntu-latest
 
-    env:
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.1'
+
+      - name: Bundler
+        run: bundle install
+
+      - name: Rubocop
+        run: bin/rubocop
+
+  rspec:
+    runs-on: ubuntu-latest
+
+    env: # $BUNDLE_GEMFILE must be set at the job level, so it is set for all steps
+      BUNDLE_GEMFILE: ${{ github.workspace }}/gemfiles/${{ matrix.rails }}_with_${{ matrix.adapter }}.gemfile
       ORACLE_COOKIE: sqldev
       ORACLE_FILE: oracle11g/xe/oracle-xe-11.2.0-1.0.x86_64.rpm.zip
       ORACLE_HOME: /u01/app/oracle/product/11.2.0/xe
@@ -17,7 +44,7 @@ jobs:
 
     services:
       postgres:
-        image: 'postgres:13'
+        image: 'postgres:16'
         ports: ['5432:5432']
         env:
           POSTGRES_PASSWORD: postgres
@@ -46,75 +73,79 @@ jobs:
       fail-fast: false
       matrix:
         ruby:
-          - '3.0'
-          - '2.7'
-          - '2.6'
-          - '2.5'
+          - '3.4'
+          - '3.3'
+          - '3.2'
+          - '3.1'
+          - 'head'
         rails:
-          - rails_5.2.4
-          - rails_6.0.3
-          - rails_6.1.0
+          - rails_8.0
+          - rails_7.2
+          - rails_7.1
         adapter:
           - sqlite3
           - postgresql
           - mysql2
           - oracle_enhanced
+          - postgis
+          # Disabled for now:
+          # Rails 7.0: trilogy_auth_recv: caching_sha2_password requires either TCP with TLS or a unix socket: TRILOGY_UNSUPPORTED
+          # Rails 7.1: unknown keyword: :uses_transaction
+          # Rails 7.2: NotImplementedError
+          # - trilogy
         exclude:
-          - ruby: '3.0'
-            rails: rails_5.2.4
+          # Rails 8.0 needs Ruby > 3.2
+          - rails: 'rails_8.0'
+            ruby: '3.1'
+
+          # Disabled for now because of build error:
+          #  /opt/hostedtoolcache/Ruby/3.0.7/x64/lib/ruby/3.0.0/psych.rb:457:in
+          # `parse_stream': undefined method `parse' for #<Psych::Parser:0x000055b6cc7b6898
+          # @handler=#<Psych::Handlers::DocumentStream:0x000055b6cc7b69b0 @stack=[],
+          # @last=nil, @root=nil, @start_line=nil, @start_column=nil, @end_line=nil,
+          # @end_column=nil, @block=#<Proc:0x000055b6cc7b68e8
+          # /opt/hostedtoolcache/Ruby/3.0.7/x64/lib/ruby/3.0.0/psych.rb:391>>,
+          # @external_encoding=0> (NoMethodError)
+          # from
+          # /home/runner/work/ajax-datatables-rails/ajax-datatables-rails/vendor/bundle/ruby/3.0.0/gems/ruby-oci8-2.2.14/ext/oci8/apiwrap.rb:64:in
+          # `create_apiwrap'
+          - rails: 'rails_7.2'
+            adapter: 'oracle_enhanced'
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
-
-      - name: Setup Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: ${{ matrix.ruby }}
+        uses: actions/checkout@v4
 
       - name: Set DB Adapter
         env:
-          RAILS_VERSION: ${{ matrix.rails }}
           DB_ADAPTER: ${{ matrix.adapter }}
           CUSTOM_ORACLE_FILE: ${{ secrets.CUSTOM_ORACLE_FILE }}
 
         # See: https://github.com/actions/virtual-environments/blob/main/images/linux/Ubuntu2004-README.md#mysql
         run: |
-          if [ "${DB_ADAPTER}" = "mysql2" ]; then
+          if [[ "${DB_ADAPTER}" == "mysql2" ]] || [[ "${DB_ADAPTER}" == "trilogy" ]]; then
             sudo systemctl start mysql.service
             mysql -u root -proot -e 'create database ajax_datatables_rails;'
           fi
 
-          if [ "${DB_ADAPTER}" = "oracle_enhanced" ]; then
+          if [[ "${DB_ADAPTER}" == "oracle_enhanced" ]]; then
             ./spec/install_oracle.sh
             # Fix error : libnnz11.so: cannot open shared object file: No such file or directory
             sudo ln -s ${ORACLE_HOME}/lib/libnnz11.so /usr/lib/libnnz11.so
           fi
 
-      - name: Setup Ruby cache
-        uses: actions/cache@v2
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
         with:
-          path: vendor/bundle
-          key: ${{ runner.os }}-gems-${{ matrix.ruby }}-${{ matrix.rails }}-${{ matrix.adapter }}-${{ hashFiles('**/Gemfile.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-gems-${{ matrix.ruby }}-${{ matrix.rails }}-${{ matrix.adapter }}-
-
-      - name: Bundle
+          ruby-version: ${{ matrix.ruby }}
+          bundler-cache: true
         env:
-          RAILS_VERSION: ${{ matrix.rails }}
           DB_ADAPTER: ${{ matrix.adapter }}
-          BUNDLE_GEMFILE: gemfiles/${{ matrix.rails }}.gemfile
-        run: |
-          gem install bundler
-          bundle config path vendor/bundle
-          bundle install --jobs 4 --retry 3
 
       - name: RSpec & publish code coverage
-        uses: paambaati/codeclimate-action@v2.7.5
+        uses: paambaati/codeclimate-action@v9.0.0
         env:
-          RAILS_VERSION: ${{ matrix.rails }}
           DB_ADAPTER: ${{ matrix.adapter }}
-          BUNDLE_GEMFILE: gemfiles/${{ matrix.rails }}.gemfile
           CC_TEST_REPORTER_ID: ${{ secrets.CC_TEST_REPORTER_ID }}
         with:
-          coverageCommand: bin/rake
+          coverageCommand: bin/rspec

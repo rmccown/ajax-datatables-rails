@@ -19,14 +19,16 @@ Gem::Specification.new do |s|
     'bug_tracker_uri' => 'https://github.com/jbox-web/ajax-datatables-rails/issues',
   }
 
-  s.required_ruby_version = '>= 2.5.0'
+  s.required_ruby_version = '>= 2.7.0'
 
   s.files = `git ls-files`.split("\n")
 
+  s.add_runtime_dependency 'rails', '>= 5.2'
   s.add_runtime_dependency 'zeitwerk'
 
   s.add_development_dependency 'activerecord-oracle_enhanced-adapter'
   s.add_development_dependency 'appraisal'
+  s.add_development_dependency 'combustion', '~> 1.3'
   s.add_development_dependency 'database_cleaner'
   s.add_development_dependency 'factory_bot'
   s.add_development_dependency 'faker'
@@ -34,10 +36,11 @@ Gem::Specification.new do |s|
   s.add_development_dependency 'guard-rspec'
   s.add_development_dependency 'pg'
   s.add_development_dependency 'pry'
-  s.add_development_dependency 'rails', '>= 5.2'
+  s.add_development_dependency 'puma'
   s.add_development_dependency 'rake'
   s.add_development_dependency 'rspec'
   s.add_development_dependency 'rspec-retry'
   s.add_development_dependency 'rubocop'
   s.add_development_dependency 'simplecov'
+  s.add_development_dependency 'sqlite3', '~> 1.4.0'
 end
